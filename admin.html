@@ -1,0 +1,130 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>MOONone 管理</title>
+<style>:root{--ink:#1d1b22;--gold:#a9863f;--mist:#f4f8fb;--line:#e6e0d2}*{box-sizing:border-box}
+body{margin:0;background:var(--mist);color:var(--ink);font:15px/1.6 "Hiragino Sans","Noto Sans JP",sans-serif}
+header{background:var(--ink);color:#fff;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid var(--gold)}
+header a,header button{color:#d8bd7c;background:none;border:0;font:inherit;cursor:pointer;margin-left:12px}
+nav{display:flex;gap:6px;overflow-x:auto;padding:10px 12px}nav button{flex:none;border:1px solid var(--gold);background:#fff;padding:8px 14px;border-radius:16px;font:inherit}nav .on{background:var(--ink);color:#fff}
+main,.box{max-width:720px;margin:auto;padding:12px 16px 60px}.box{margin-top:12vh;background:#fff;border:1px solid var(--line)}
+label{display:block;font-size:13px;font-weight:700;margin-top:12px}input:not([type=checkbox]),textarea,select{display:block;width:100%;padding:10px;border:1px solid #ccc;font:16px inherit;margin-top:4px;background:#fff}
+input[type=checkbox]{width:20px;height:20px;margin-top:6px}
+button.p,.box button{background:var(--ink);color:#fff;border:0;padding:12px 18px;font:inherit;margin-top:16px;cursor:pointer}.alt{background:#fff!important;color:var(--ink)!important;border:1px solid var(--ink)!important;margin-left:8px}
+.row{background:#fff;border:1px solid var(--line);padding:10px 12px;margin-top:8px;display:flex;gap:8px;align-items:center;justify-content:space-between}.row span{overflow:hidden;text-overflow:ellipsis}.row i{opacity:.5;font-style:normal}
+.row button{border:1px solid #bbb;background:#fff;padding:6px 10px;font:inherit}.pv{width:90px;margin:6px 0;display:block}.m{color:#b3261e}pre{background:#fff;padding:10px;overflow:auto;font-size:12px}</style></head><body><div id="app"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script><script>
+// ▼ Supabase の設定(index.html と同じ値)
+window.MOON_CONFIG={url:'',anon:''};
+</script>
+<script type="text/plain" id="sqlsrc">-- Supabase の SQL Editor に全文を貼り付けて Run してください
+create table if not exists admins(user_id uuid primary key references auth.users on delete cascade);
+alter table admins enable row level security; -- ポリシー無し = API から一切触れない
+
+create or replace function is_admin() returns boolean
+language sql security definer set search_path=public stable
+as $$ select exists(select 1 from admins where user_id=auth.uid()) $$;
+grant execute on function is_admin() to anon, authenticated;
+
+create table if not exists news(
+  id text primary key default gen_random_uuid()::text,
+  posted_on date not null default current_date,
+  title text not null, body text,
+  active boolean not null default true);
+create table if not exists coupons(
+  id text primary key default gen_random_uuid()::text,
+  title text not null, discount text, body text, code text,
+  start_on date, end_on date,
+  sort int not null default 0, active boolean not null default true);
+create table if not exists therapists(
+  id text primary key default gen_random_uuid()::text,
+  name text not null, photo text,
+  age int, height int, bust int, cup text, waist int, hip int,
+  categories text[] not null default '{}', x_url text, catch text,
+  hobby text, specialty text, food text, prev_job text, kyun text, holiday text,
+  message text, manager_comment text,
+  sample boolean not null default false,
+  sort int not null default 0, active boolean not null default true);
+create table if not exists schedule(
+  id text primary key default gen_random_uuid()::text,
+  therapist_id text not null references therapists(id) on delete cascade,
+  work_date date not null, start_time text not null, end_time text not null);
+create table if not exists diary(
+  id text primary key default gen_random_uuid()::text,
+  therapist_id text not null references therapists(id) on delete cascade,
+  posted_at timestamptz not null default now(),
+  title text not null, body text, photo text,
+  active boolean not null default true);
+
+grant select on news, coupons, therapists, schedule, diary to anon;
+grant all on news, coupons, therapists, schedule, diary to authenticated;
+
+do $$ declare t text; begin
+  foreach t in array array['news','coupons','therapists','schedule','diary'] loop
+    execute format('alter table %I enable row level security', t);
+    execute format('drop policy if exists "admin all" on %I', t);
+    execute format('create policy "admin all" on %I for all to authenticated using (is_admin()) with check (is_admin())', t);
+    if t<>'schedule' then
+      execute format('drop policy if exists "public read" on %I', t);
+      execute format('create policy "public read" on %I for select to anon, authenticated using (active)', t);
+    end if;
+  end loop;
+end $$;
+drop policy if exists "public read" on schedule;
+create policy "public read" on schedule for select to anon, authenticated using (true);
+
+-- 写真用ストレージ(公開読み取り・書き込みは管理者のみ)
+insert into storage.buckets(id,name,public) values('photos','photos',true) on conflict (id) do nothing;
+drop policy if exists "photos admin" on storage.objects;
+create policy "photos admin" on storage.objects for all to authenticated
+  using (bucket_id='photos' and is_admin()) with check (bucket_id='photos' and is_admin());
+</script>
+<script>
+const C=window.MOON_CONFIG||{},$=s=>document.querySelector(s),app=$('#app'),pad=n=>String(n).padStart(2,'0');
+const esc=t=>String(t??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+if(!C.url||/YOUR-/.test(C.url)){app.innerHTML='<div class="box"><h1>初期設定</h1><p>① Supabase の SQL Editor に下のSQLを貼って Run<br>② Project URL と anon key を、このファイル先頭の MOON_CONFIG に記入(index.html にも同じ値を)</p><button type="button" id="cp">SQLをコピー</button><pre id="sq"></pre></div>';$('#sq').textContent=$('#sqlsrc').textContent;$('#cp').onclick=async()=>{await navigator.clipboard.writeText($('#sqlsrc').textContent);$('#cp').textContent='コピーしました'};throw 0}
+const sb=supabase.createClient(C.url,C.anon);let TH=[],tab='news';
+const nm=id=>(TH.find(t=>t.id===id)||{}).name||'?',ymd=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()),lt=s=>{const d=new Date(s);return ymd(d)+'T'+pad(d.getHours())+':'+pad(d.getMinutes())};
+const A=['active','公開する','bool'];
+const T={
+ news:{l:'最新情報',o:['posted_on',0],s:r=>r.posted_on+'　'+r.title,f:[['posted_on','日付','date'],['title','タイトル','text'],['body','本文','area'],A]},
+ coupons:{l:'割引・クーポン',o:['sort',1],s:r=>r.title+'　'+(r.discount||''),f:[['title','タイトル','text'],['discount','割引内容(例 1,000円OFF)','text'],['body','詳細','area'],['code','クーポンコード','text'],['start_on','開始日(空=すぐ)','date'],['end_on','終了日(空=無期限)','date'],['sort','表示順(小さい順)','num'],A]},
+ schedule:{l:'出勤情報',o:['work_date',0],s:r=>r.work_date+'　'+nm(r.therapist_id)+'　'+r.start_time+'-'+r.end_time,f:[['work_date','日付','date'],['therapist_id','キャスト','th'],['start_time','開始(例 12:00)','text'],['end_time','終了(例 20:00)','text']]},
+ therapists:{l:'キャスト一覧',o:['sort',1],s:r=>r.name+(r.active?'':'(非公開)'),f:[['name','名前','text'],['photo','写真','img'],['age','年齢','num'],['height','身長(cm)','num'],['bust','バスト','num'],['cup','カップ','text'],['waist','ウエスト','num'],['hip','ヒップ','num'],['categories','カテゴリー(カンマ区切り)','tags'],['x_url','XのURL','text'],['catch','キャッチコピー','text'],['hobby','趣味','text'],['specialty','得意な施術','text'],['food','好きな食べ物','text'],['prev_job','前のお仕事','text'],['kyun','男性にキュンとする瞬間','text'],['holiday','休みの日は何をしている?','text'],['message','本人からのメッセージ','area'],['manager_comment','店長のコメント','area'],['sample','サンプル表示','bool'],['sort','表示順(小さい順)','num'],A]},
+ diary:{l:'写メ日記',o:['posted_at',0],s:r=>lt(r.posted_at).replace('T',' ')+'　'+nm(r.therapist_id)+'　'+r.title,f:[['therapist_id','キャスト','th'],['posted_at','投稿日時','dt'],['title','タイトル','text'],['body','本文','area'],['photo','写真','img'],A]}};
+async function boot(){const{data:{session}}=await sb.auth.getSession();if(!session)return login();
+ const{data:ok}=await sb.rpc('is_admin');if(!ok)return denied(session.user);
+ const{data}=await sb.from('therapists').select('id,name').order('sort');TH=data||[];shell()}
+function login(m=''){app.innerHTML=`<form id="lf" class="box"><h1>MOONone 管理</h1><p class="m">${m}</p><label>メールアドレス<input name="em" type="email" required autocomplete="username"></label><label>パスワード<input name="pw" type="password" required autocomplete="current-password"></label><button>ログイン</button><button type="button" id="gh" class="alt">GitHubでログイン</button></form>`;
+ $('#lf').onsubmit=async e=>{e.preventDefault();const{error}=await sb.auth.signInWithPassword({email:e.target.em.value,password:e.target.pw.value});error?login('ログインに失敗しました'):boot()};
+ $('#gh').onclick=()=>sb.auth.signInWithOAuth({provider:'github',options:{redirectTo:location.origin+location.pathname}})}
+function denied(u){app.innerHTML=`<div class="box"><h1>管理者未登録</h1><p>このアカウントはまだ管理者に登録されていません。Supabase の SQL Editor で次を実行してください。</p><pre>insert into admins(user_id) values ('${esc(u.id)}');</pre><button id="lo">ログアウト</button></div>`;$('#lo').onclick=out}
+async function out(){await sb.auth.signOut();login()}
+function shell(){app.innerHTML=`<header><b>MOONone 管理</b><span><a href="index.html" target="_blank">サイトを見る</a><button id="lo">ログアウト</button></span></header><nav>${Object.entries(T).map(([k,c])=>`<button data-t="${k}" class="${k===tab?'on':''}">${c.l}</button>`).join('')}</nav><main id="mn"></main>`;
+ $('#lo').onclick=out;document.querySelector('nav').onclick=e=>{const k=e.target.dataset.t;if(k){tab=k;shell()}};list()}
+async function list(){const c=T[tab],mn=$('#mn');mn.innerHTML='読み込み中…';
+ const{data,error}=await sb.from(tab).select('*').order(c.o[0],{ascending:!!c.o[1]});if(error)return mn.innerHTML=`<p class="m">${esc(error.message)}</p>`;
+ mn.innerHTML=`<button class="p" id="nw">＋ 新規追加</button>`+(data.map(r=>`<div class="row"><span>${esc(c.s(r))}</span><span><button data-e="${esc(r.id)}">編集</button> <button data-d="${esc(r.id)}">削除</button></span></div>`).join('')||'<p>まだありません。</p>');
+ $('#nw').onclick=()=>form({active:true,posted_on:ymd(new Date()),posted_at:new Date().toISOString(),sort:0});
+ mn.onclick=async e=>{const b=e.target,id=b.dataset.e||b.dataset.d;if(!id)return;
+  if(b.dataset.e)form(data.find(r=>r.id===id));
+  else if(confirm('削除します。よろしいですか?')){const{error}=await sb.from(tab).delete().eq('id',id);error?alert(error.message):list()}}}
+const inp=([k,l,t],v)=>{let h;
+ if(t==='area')h=`<textarea name="${k}" rows="4">${esc(v)}</textarea>`;
+ else if(t==='bool')h=`<input type="checkbox" name="${k}" ${v?'checked':''}>`;
+ else if(t==='th')h=`<select name="${k}">${TH.map(x=>`<option value="${esc(x.id)}" ${x.id===v?'selected':''}>${esc(x.name)}</option>`).join('')}</select>`;
+ else if(t==='img')h=`<input type="hidden" name="${k}" value="${esc(v)}">${v?`<img class="pv" src="${esc(v)}">`:''}<input type="file" accept="image/*" data-k="${k}">`;
+ else h=`<input name="${k}" type="${{date:'date',num:'number',dt:'datetime-local'}[t]||'text'}" ${t==='num'?'step="any"':''} value="${esc(t==='tags'?(v||[]).join(','):t==='dt'&&v?lt(v):v)}">`;
+ return `<label>${l}${h}</label>`};
+async function up(file){const im=await createImageBitmap(file),s=Math.min(1,1200/Math.max(im.width,im.height)),cv=document.createElement('canvas');cv.width=im.width*s;cv.height=im.height*s;cv.getContext('2d').drawImage(im,0,0,cv.width,cv.height);
+ const b=await new Promise(r=>cv.toBlob(r,'image/jpeg',.85)),p=tab+'/'+crypto.randomUUID()+'.jpg',{error}=await sb.storage.from('photos').upload(p,b,{contentType:'image/jpeg'});if(error)throw error;return sb.storage.from('photos').getPublicUrl(p).data.publicUrl}
+function form(r){const c=T[tab],mn=$('#mn');
+ if(tab!=='therapists'&&c.f.some(f=>f[2]==='th')&&!TH.length)return alert('先に「キャスト一覧」でキャストを登録してください');
+ mn.innerHTML=`<form id="ef"><h2>${c.l}を${r.id?'編集':'追加'}</h2>${c.f.map(f=>inp(f,f[2]==='th'&&!r[f[0]]?TH[0]?.id:r[f[0]])).join('')}<button class="p">保存</button><button type="button" class="alt" id="cn">キャンセル</button></form>`;
+ $('#cn').onclick=list;
+ $('#ef').onchange=async e=>{const f=e.target.files?.[0];if(!f)return;e.target.disabled=true;try{e.target.form.elements[e.target.dataset.k].value=await up(f);e.target.insertAdjacentHTML('beforebegin','<p>アップロード済み(保存で反映)</p>')}catch(x){alert(x.message)}e.target.disabled=false};
+ $('#ef').onsubmit=async e=>{e.preventDefault();const o={};
+  for(const[k,,t]of c.f){const el=e.target.elements[k];let v=t==='bool'?el.checked:el.value;
+   if(t==='num')v=v===''?null:+v;else if(t==='tags')v=v.split(/[,、]/).map(s=>s.trim()).filter(Boolean);else if(t==='dt')v=v?new Date(v).toISOString():null;else if(v==='')v=null;o[k]=v}
+  const{error}=await(r.id?sb.from(tab).update(o).eq('id',r.id):sb.from(tab).insert(o));
+  if(error)return alert(error.message);
+  if(tab==='therapists'){const{data}=await sb.from('therapists').select('id,name').order('sort');TH=data||[]}list()}}
+sb.auth.onAuthStateChange(ev=>{if(ev==='SIGNED_OUT')login()});boot();
+</script></body></html>
