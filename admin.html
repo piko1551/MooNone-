@@ -10,76 +10,199 @@ input[type=checkbox]{width:20px;height:20px;margin-top:6px}
 button.p,.box button{background:var(--ink);color:#fff;border:0;padding:12px 18px;font:inherit;margin-top:16px;cursor:pointer}.alt{background:#fff!important;color:var(--ink)!important;border:1px solid var(--ink)!important;margin-left:8px}
 .row{background:#fff;border:1px solid var(--line);padding:10px 12px;margin-top:8px;display:flex;gap:8px;align-items:center;justify-content:space-between}.row span{overflow:hidden;text-overflow:ellipsis}.row i{opacity:.5;font-style:normal}
 .row button{border:1px solid #bbb;background:#fff;padding:6px 10px;font:inherit}.pv{width:90px;margin:6px 0;display:block}.m{color:#b3261e}pre{background:#fff;padding:10px;overflow:auto;font-size:12px}</style></head><body><div id="app"></div>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script><script>
-// ▼ Supabase の設定(index.html と同じ値)
-window.MOON_CONFIG={url:'',anon:''};
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.0/dist/umd/supabase.min.js"></script><script>
+// ▼ Supabase の設定(index.html と同じ値)。Publishable key は公開前提のキーです
+// ※ service_role / sb_secret_ キーは絶対にここへ書かないこと
+window.MOON_CONFIG={url:'https://zrheibaczldgsiniimgq.supabase.co',anon:'sb_publishable_igzTN5OBfVqmLikU_FMV1g_cdKLOO-P'};
 </script>
-<script type="text/plain" id="sqlsrc">-- Supabase の SQL Editor に全文を貼り付けて Run してください
-create table if not exists admins(user_id uuid primary key references auth.users on delete cascade);
-alter table admins enable row level security; -- ポリシー無し = API から一切触れない
+<script type="text/plain" id="sqlsrc">
+-- MOONone Supabase 構築SQL(最終版)
+-- 実行方法: Supabase の SQL Editor に全文を貼って Run(何度実行しても同じ結果になります)
+-- 保存先の目安: supabase/migrations/20261112000000_moonone_setup.sql
+-- 注意: index.html は公開ビュー(public_*)から読みます。このSQLを実行済みであることが前提です。
 
-create or replace function is_admin() returns boolean
-language sql security definer set search_path=public stable
-as $$ select exists(select 1 from admins where user_id=auth.uid()) $$;
-grant execute on function is_admin() to anon, authenticated;
+-- 1. 管理者テーブルと管理者判定関数
+create table if not exists public.admins (
+  user_id uuid primary key references auth.users(id) on delete cascade
+);
 
-create table if not exists news(
+alter table public.admins enable row level security;
+revoke all on public.admins from anon, authenticated;
+
+create or replace function public.is_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1 from public.admins
+    where user_id = (select auth.uid())
+  );
+$$;
+
+revoke all on function public.is_admin() from public, anon;
+grant execute on function public.is_admin() to authenticated;
+
+-- 2. 管理データテーブル
+create table if not exists public.news (
   id text primary key default gen_random_uuid()::text,
   posted_on date not null default current_date,
-  title text not null, body text,
-  active boolean not null default true);
-create table if not exists coupons(
+  title text not null,
+  body text,
+  active boolean not null default true
+);
+
+create table if not exists public.coupons (
   id text primary key default gen_random_uuid()::text,
-  title text not null, discount text, body text, code text,
-  start_on date, end_on date,
-  sort int not null default 0, active boolean not null default true);
-create table if not exists therapists(
+  title text not null,
+  discount text,
+  body text,
+  code text,
+  start_on date,
+  end_on date,
+  sort integer not null default 0,
+  active boolean not null default true
+);
+
+create table if not exists public.therapists (
   id text primary key default gen_random_uuid()::text,
-  name text not null, photo text,
-  age int, height int, bust int, cup text, waist int, hip int,
-  categories text[] not null default '{}', x_url text, catch text,
-  hobby text, specialty text, food text, prev_job text, kyun text, holiday text,
-  message text, manager_comment text,
+  name text not null,
+  photo text,
+  age integer,
+  height integer,
+  bust integer,
+  cup text,
+  waist integer,
+  hip integer,
+  categories text[] not null default '{}',
+  x_url text,
+  catch text,
+  hobby text,
+  specialty text,
+  food text,
+  prev_job text,
+  kyun text,
+  holiday text,
+  message text,
+  manager_comment text,
   sample boolean not null default false,
-  sort int not null default 0, active boolean not null default true);
-create table if not exists schedule(
+  sort integer not null default 0,
+  active boolean not null default true
+);
+
+create table if not exists public.schedule (
   id text primary key default gen_random_uuid()::text,
-  therapist_id text not null references therapists(id) on delete cascade,
-  work_date date not null, start_time text not null, end_time text not null);
-create table if not exists diary(
+  therapist_id text not null references public.therapists(id) on delete cascade,
+  work_date date not null,
+  start_time text not null,
+  end_time text not null
+);
+
+create table if not exists public.diary (
   id text primary key default gen_random_uuid()::text,
-  therapist_id text not null references therapists(id) on delete cascade,
+  therapist_id text not null references public.therapists(id) on delete cascade,
   posted_at timestamptz not null default now(),
-  title text not null, body text, photo text,
-  active boolean not null default true);
+  title text not null,
+  body text,
+  photo text,
+  active boolean not null default true
+);
 
-grant select on news, coupons, therapists, schedule, diary to anon;
-grant all on news, coupons, therapists, schedule, diary to authenticated;
+-- 3. RLSと権限
+alter table public.news enable row level security;
+alter table public.coupons enable row level security;
+alter table public.therapists enable row level security;
+alter table public.schedule enable row level security;
+alter table public.diary enable row level security;
 
-do $$ declare t text; begin
-  foreach t in array array['news','coupons','therapists','schedule','diary'] loop
-    execute format('alter table %I enable row level security', t);
-    execute format('drop policy if exists "admin all" on %I', t);
-    execute format('create policy "admin all" on %I for all to authenticated using (is_admin()) with check (is_admin())', t);
-    if t<>'schedule' then
-      execute format('drop policy if exists "public read" on %I', t);
-      execute format('create policy "public read" on %I for select to anon, authenticated using (active)', t);
-    end if;
-  end loop;
-end $$;
-drop policy if exists "public read" on schedule;
-create policy "public read" on schedule for select to anon, authenticated using (true);
+revoke all on public.news, public.coupons, public.therapists, public.schedule, public.diary from anon, authenticated;
+grant select on public.news, public.coupons to anon, authenticated;
+grant select, insert, update, delete on public.news, public.coupons, public.therapists, public.schedule, public.diary to authenticated;
 
--- 写真用ストレージ(公開読み取り・書き込みは管理者のみ)
-insert into storage.buckets(id,name,public) values('photos','photos',true) on conflict (id) do nothing;
+drop policy if exists "admin all" on public.news;
+create policy "admin all" on public.news for all to authenticated
+using (public.is_admin()) with check (public.is_admin());
+
+drop policy if exists "public read" on public.news;
+create policy "public read" on public.news for select to anon, authenticated
+using (active = true);
+
+drop policy if exists "admin all" on public.coupons;
+create policy "admin all" on public.coupons for all to authenticated
+using (public.is_admin()) with check (public.is_admin());
+
+drop policy if exists "public read" on public.coupons;
+create policy "public read" on public.coupons for select to anon, authenticated
+using (active = true);
+
+drop policy if exists "admin all" on public.therapists;
+create policy "admin all" on public.therapists for all to authenticated
+using (public.is_admin()) with check (public.is_admin());
+
+drop policy if exists "admin all" on public.schedule;
+create policy "admin all" on public.schedule for all to authenticated
+using (public.is_admin()) with check (public.is_admin());
+
+drop policy if exists "admin all" on public.diary;
+create policy "admin all" on public.diary for all to authenticated
+using (public.is_admin()) with check (public.is_admin());
+
+-- 旧SQLで作った「public read」が残っていれば削除(公開側はビュー経由に一本化)
+drop policy if exists "public read" on public.therapists;
+drop policy if exists "public read" on public.schedule;
+drop policy if exists "public read" on public.diary;
+
+-- 4. お客様向け公開ビュー(公開する列と行をここで限定)
+create or replace view public.public_therapists
+with (security_barrier = true) as
+select id, name, photo, age, height, bust, cup, waist, hip, categories,
+x_url, catch, hobby, specialty, food, prev_job, kyun, holiday,
+message, manager_comment, sample, sort
+from public.therapists
+where active = true;
+
+create or replace view public.public_schedule
+with (security_barrier = true) as
+select s.id, s.therapist_id, s.work_date, s.start_time, s.end_time
+from public.schedule s
+join public.therapists t on t.id = s.therapist_id
+where t.active = true;
+
+create or replace view public.public_diary
+with (security_barrier = true) as
+select d.id, d.therapist_id, d.posted_at, d.title, d.body, d.photo
+from public.diary d
+join public.therapists t on t.id = d.therapist_id
+where d.active = true and t.active = true;
+
+revoke all on public.therapists, public.schedule, public.diary from anon;
+grant usage on schema public to anon, authenticated;
+grant select on public.public_therapists, public.public_schedule, public.public_diary to anon, authenticated;
+
+-- 5. 写真ストレージ(公開読み取り・書き込みは管理者のみ・5MB以下のJPEG/PNG/WebP)
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('photos', 'photos', true, 5242880, array['image/jpeg','image/png','image/webp'])
+on conflict (id) do update
+set public = true,
+    file_size_limit = 5242880,
+    allowed_mime_types = array['image/jpeg','image/png','image/webp'];
+
 drop policy if exists "photos admin" on storage.objects;
 create policy "photos admin" on storage.objects for all to authenticated
-  using (bucket_id='photos' and is_admin()) with check (bucket_id='photos' and is_admin());
+using (bucket_id = 'photos' and public.is_admin())
+with check (bucket_id = 'photos' and public.is_admin());
+
+-- 6. 初回管理者登録は構築後に別途実施
+--    Authentication → Users でログイン用ユーザーを作成し、そのIDで次を実行:
+--    insert into public.admins (user_id) values ('ここにユーザーID');
+--    (管理ページで「管理者未登録」と出たとき、画面に同じSQLが表示されます)
 </script>
 <script>
 const C=window.MOON_CONFIG||{},$=s=>document.querySelector(s),app=$('#app'),pad=n=>String(n).padStart(2,'0');
 const esc=t=>String(t??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-if(!C.url||/YOUR-/.test(C.url)){app.innerHTML='<div class="box"><h1>初期設定</h1><p>① Supabase の SQL Editor に下のSQLを貼って Run<br>② Project URL と anon key を、このファイル先頭の MOON_CONFIG に記入(index.html にも同じ値を)</p><button type="button" id="cp">SQLをコピー</button><pre id="sq"></pre></div>';$('#sq').textContent=$('#sqlsrc').textContent;$('#cp').onclick=async()=>{await navigator.clipboard.writeText($('#sqlsrc').textContent);$('#cp').textContent='コピーしました'};throw 0}
+if(!C.url||/YOUR-/.test(C.url)){app.innerHTML='<div class="box"><h1>初期設定</h1><p>① Supabase の SQL Editor に下のSQLを貼って Run<br>② Project URL と Publishable key を、このファイル先頭の MOON_CONFIG に記入(index.html にも同じ値を)</p><button type="button" id="cp">SQLをコピー</button><pre id="sq"></pre></div>';$('#sq').textContent=$('#sqlsrc').textContent;$('#cp').onclick=async()=>{await navigator.clipboard.writeText($('#sqlsrc').textContent);$('#cp').textContent='コピーしました'};throw 0}
 const sb=supabase.createClient(C.url,C.anon);let TH=[],tab='news';
 const nm=id=>(TH.find(t=>t.id===id)||{}).name||'?',ymd=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()),lt=s=>{const d=new Date(s);return ymd(d)+'T'+pad(d.getHours())+':'+pad(d.getMinutes())};
 const A=['active','公開する','bool'];
