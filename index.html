@@ -112,4 +112,7 @@ function route(){const[h,id]=(location.hash.slice(1)||'index').split('/'),k=PG[h
 document.addEventListener('click',e=>{const a=e.target.closest('a');if(!a)return;const h=a.getAttribute('href')||'',t=/^therapist\.html\?id=(.+)$/.exec(h),p=/^(\w+)\.html$/.exec(h);if(t){e.preventDefault();location.hash='therapist/'+t[1]}else if(p&&PG[p[1]]){e.preventDefault();location.hash=p[1]}});
 addEventListener('hashchange',route);route();
 
-</script></body></html>
+</script></body></html> <style>dt:has(+dd>.empty),dd:has(>.empty){display:none}</style>
+<script>
+fetch(window.MOON_CONFIG.url+'/rest/v1/shop_info?select=*&id=eq.1',{headers:{apikey:window.MOON_CONFIG.anon}}).then(r=>r.ok?r.json():[]).then(([s])=>{if(!s)return;Object.assign(INLINE.shop,{address:s.address,station:s.station,walk:s.walk,hours:s.hours,contact:s.contact});if(page==='access')route()}).catch(()=>{});
+</script>
