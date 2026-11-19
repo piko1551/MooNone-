@@ -13,6 +13,8 @@
   var BUFFER = 15;              // 予約と予約の間隔(分)
   var COURSES = [[60, 16000], [70, 18000], [90, 22000], [120, 27000], [150, 32000]]; // [分, 料金] ※料金表と同じ値
 
+  var OILS = [['ノーマルオイル', 0], ['ディープオイル', 2000], ['極みオイル', 3000]]; // [名前, 追加料金] ※料金表と同じ値
+  var NOMS = [['指名', 2000], ['フリー', 0]]; // [名前, 指名料] ※フリーは指名料なし
   var W = '日月火水木金土';
   var pad = function (n) { return String(n).padStart(2, '0'); };
   var esc = function (t) { return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
@@ -73,18 +75,22 @@
           return '<option value="' + esc(d.work_date) + '">' + (+p[1]) + '/' + (+p[2]) + '(' + W[dt.getDay()] + ')　出勤 ' + esc(d.start_time) + '〜' + esc(d.end_time) + '</option>';
         }).join('') + '</select></label>' +
         '<label>コース<select id="mr-course">' + COURSES.map(function (c) { return '<option value="' + c[0] + '">' + c[0] + '分　' + yen(c[1]) + '</option>'; }).join('') + '</select></label>' +
+        '<label>指名<select id="mr-nom">' + NOMS.map(function (o, i) { return '<option value="' + i + '">' + o[0] + '　' + (o[1] ? '指名料 +' + yen(o[1]) : '指名料なし') + '</option>'; }).join('') + '</select></label>' +
+        '<label>オイル<select id="mr-oil">' + OILS.map(function (o, i) { return '<option value="' + i + '">' + o[0] + '　' + (o[1] ? '+' + yen(o[1]) : '無料') + '</option>'; }).join('') + '</select></label>' +
         '<label>ご希望の開始時間<select id="mr-time"></select></label>' +
         '<p class="mr-price" id="mr-price"></p>' +
-        '<p class="mr-small">※料金はコース料金です。指名料・オプション料金は別途かかります(<a href="price.html">料金表</a>)。</p>' +
+        '<p class="mr-small">※料金はコース・オイル・指名料の合計です。その他のオプション料金は別途かかります(<a href="price.html">料金表</a>)。</p>' +
         '<button class="btn" id="mr-go" type="button" style="margin-top:16px">この内容でSMSを作成</button>' +
         '<div id="mr-msg" class="mr-msg" role="status"></div>' +
         '<p class="mr-small">※ボタンを押すと、その時間を30分間おさえます。SMSを送信すると、店長が確認して予約確定となります。30分以内に送信がない場合は、おさえた時間は自動で解除されます。</p>';
 
-      var dSel = body.querySelector('#mr-date'), cSel = body.querySelector('#mr-course'), tSel = body.querySelector('#mr-time'),
+      var dSel = body.querySelector('#mr-date'), cSel = body.querySelector('#mr-course'), tSel = body.querySelector('#mr-time'), oSel = body.querySelector('#mr-oil'), nSel = body.querySelector('#mr-nom'),
           price = body.querySelector('#mr-price'), go = body.querySelector('#mr-go'), msg = body.querySelector('#mr-msg'), busy = [];
 
       function shiftOf() { return days.filter(function (d) { return d.work_date === dSel.value; })[0]; }
-      function priceOf() { return COURSES.filter(function (c) { return c[0] === +cSel.value; })[0][1]; }
+      function oilOf() { return OILS[+oSel.value]; }
+      function nomOf() { return NOMS[+nSel.value]; }
+      function priceOf() { return COURSES.filter(function (c) { return c[0] === +cSel.value; })[0][1] + oilOf()[1] + nomOf()[1]; }
 
       function slots() {
         var sh = shiftOf(), s = mins(sh.start_time), e = mins(sh.end_time), cm = +cSel.value;
@@ -119,6 +125,8 @@
 
       dSel.onchange = loadBusy;
       cSel.onchange = draw;
+      oSel.onchange = draw;
+      nSel.onchange = draw;
       loadBusy();
 
       go.onclick = function () {
@@ -133,7 +141,7 @@
           return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) throw new Error((j && (j.message || j.hint)) || r.status); return j; });
         }).then(function () {
           var text = '【MOONone 予約希望】\n\nお名前（ニックネーム可）：\n\nキャスト：' + name + '\n希望日：' + (+p[1]) + '/' + (+p[2]) + '(' + W[dt.getDay()] + ')' +
-            '\n希望時間：' + time + '\nコース：' + cm + '分\n料金：' + yen(priceOf()) + '（コース料金のみ）\n\nお名前をご記入のうえ、\n送信してください。';
+            '\n希望時間：' + time + '\nコース：' + cm + '分\n指名：' + nomOf()[0] + '\nオイル：' + oilOf()[0] + '\n料金：' + yen(priceOf()) + '（コース・オイル・指名料の合計）\n\nお名前をご記入のうえ、\n送信してください。';
           var href = 'sms:' + SMS_TO + (isIOS() ? '&' : '?') + 'body=' + encodeURIComponent(text);
           msg.innerHTML = '<b>' + time + ' からの時間を30分間おさえました。</b><br>SMSが開かない場合は下のボタンを押してください。' +
             '<a class="btn" href="' + href + '">SMSアプリを開く</a>' +
