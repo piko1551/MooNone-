@@ -9,7 +9,6 @@
   var CFG = window.MOON_CONFIG || {};
   if (!CFG.url || !CFG.anon) return;
 
-  // 設定
   var SMS_TO = '07055755034';
   var LEAD_MIN = 30;
   var BUFFER = 15;
@@ -113,7 +112,7 @@
     '#moon-reserve .mr-price{font:600 26px "Cormorant Garamond",serif;color:var(--gold,#a9863f);margin:16px 0 0}' +
     '#moon-reserve .mr-small{font-size:12px;color:#777;margin:8px 0 0}' +
     '#moon-reserve .mr-msg{margin:12px 0 0;font-size:14px}' +
-    '#moon-reserve .mr-err{color:#b3261e}' +
+    '#moon-reserve .mr-err{color:#b3261e;white-space:pre-wrap;overflow-wrap:anywhere}' +
     '#moon-reserve .btn{width:100%;border:0;font:inherit;font-weight:700;cursor:pointer;margin-bottom:0}' +
     '#moon-reserve .btn[disabled]{opacity:.45;cursor:default}' +
     '#moon-reserve a.btn{display:block;text-align:center;margin-top:12px}';
@@ -188,10 +187,12 @@
 
       ui(days);
 
-    }).catch(function () {
+    }).catch(function (e) {
       body.innerHTML =
         '<p class="mr-small mr-err" style="font-size:14px">' +
-        '予約情報を読み込めませんでした。時間をおいて再読み込みしてください。</p>';
+        '予約情報を読み込めませんでした。' +
+        ' エラー：' + esc(e.message) +
+        '</p>';
     });
 
     function ui(days) {
@@ -281,7 +282,6 @@
         var e = mins(sh.end_time);
         var cm = Number(cSel.value);
 
-        // 日付をまたぐ出勤
         if (e <= s) e += 1440;
 
         var now = jstNow();
@@ -313,7 +313,6 @@
               Number(b.end_day_offset || 0) * 1440 +
               mins(b.end_time);
 
-            // 予約の前後に15分の間隔を確保
             return !(
               t < reservationEnd + BUFFER &&
               reservationStart < t + cm + BUFFER
@@ -372,14 +371,16 @@
           msg.textContent = '';
           draw();
 
-        }).catch(function () {
+        }).catch(function (e) {
           busyReady = false;
           busy = [];
           draw();
 
           msg.innerHTML =
             '<span class="mr-err">' +
-            '空き状況を読み込めませんでした。再読み込みしてください。</span>';
+            '空き状況を読み込めませんでした。' +
+            ' エラー：' + esc(e.message) +
+            '</span>';
         });
       }
 
@@ -414,14 +415,30 @@
             p_course_minutes: cm
           })
         }).then(function (r) {
-          return r.json().catch(function () {
-            return {};
-          }).then(function (j) {
-            if (!r.ok) {
-              throw new Error(
-                (j && (j.message || j.hint || j.details)) || r.status
-              );
+          return r.text().then(function (raw) {
+            var j = {};
+
+            try {
+              j = raw ? JSON.parse(raw) : {};
+            } catch (_) {
+              j = { raw_response: raw };
             }
+
+            if (!r.ok) {
+              var err = new Error(
+                j.message || j.error || j.hint ||
+                j.details || ('HTTP ' + r.status)
+              );
+
+              err.status = r.status;
+              err.code = j.code || '';
+              err.details = j.details || '';
+              err.hint = j.hint || '';
+              err.response = raw;
+
+              throw err;
+            }
+
             return j;
           });
         }).then(function () {
@@ -459,27 +476,27 @@
             '<a class="btn" href="' + esc(href) + '">' +
             'SMSアプリを開く</a>';
 
-          // SMSアプリを開く
           location.href = href;
 
         }).catch(function (e) {
-          var m = String(e && e.message || '');
+          console.error('[MOONone create_hold error]', e);
 
-          var t =
-            /slot taken/.test(m)
-              ? 'この時間は先に埋まりました。別の時間を選んでください。'
-              : /too many/.test(m)
-                ? '短時間に続けて仮押さえできません。しばらくしてからお試しください。'
-                : /outside shift|not working/.test(m)
-                  ? 'この時間は受付できません。別の時間を選んでください。'
-                  : /too soon/.test(m)
-                    ? '開始時刻が近すぎます。別の時間を選んでください。'
-                    : '予約を作成できませんでした。時間をおいてもう一度お試しください。';
+          var detail = [
+            '予約作成エラー',
+            'HTTPステータス：' + (e.status || '不明'),
+            'エラーコード：' + (e.code || '不明'),
+            'メッセージ：' + (e.message || '不明'),
+            '詳細：' + (e.details || 'なし'),
+            '補足：' + (e.hint || 'なし'),
+            '応答内容：' + (e.response || 'なし')
+          ].join('\n');
 
-          msg.innerHTML = '<span class="mr-err">' + esc(t) + '</span>';
+          msg.innerHTML =
+            '<div class="mr-err">' + esc(detail) + '</div>';
 
-          loadBusy();
-        });
+          // エラー内容を消さず、再操作できるようにする
+          go.disabled = false;
+        };
       };
     }
   }
