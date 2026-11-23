@@ -543,7 +543,7 @@
             '<div class="mr-err">' + esc(detail) + '</div>';
 
           go.disabled = false;
-        };
+        });
       };
     }
   }
