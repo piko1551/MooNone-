@@ -1,7 +1,5 @@
 /* MOONone お客様側の予約機能
-   個人キャストページに予約欄を追加
-   流れ：日付・コース・オイル・時間選択
-   → 30分仮押さえ → SMSを開く
+   空き状況取得のタイムアウト・エラー診断版
 */
 (function () {
   'use strict';
@@ -91,18 +89,62 @@
        navigator.maxTouchPoints > 1);
   };
 
+  // 通信処理：10秒でタイムアウト
   function get(path) {
+    var controller = new AbortController();
+
+    var timer = setTimeout(function () {
+      controller.abort();
+    }, 10000);
+
     return fetch(CFG.url + '/rest/v1/' + path, {
       headers: {
         apikey: CFG.anon
-      }
+      },
+      signal: controller.signal
     }).then(function (r) {
-      if (!r.ok) throw new Error('読み込みエラー: ' + r.status);
-      return r.json();
+      return r.text().then(function (raw) {
+        var data;
+
+        try {
+          data = raw ? JSON.parse(raw) : [];
+        } catch (_) {
+          data = { raw_response: raw };
+        }
+
+        if (!r.ok) {
+          var err = new Error(
+            data.message ||
+            data.error ||
+            data.hint ||
+            ('HTTP ' + r.status + ' ' + r.statusText)
+          );
+
+          err.status = r.status;
+          err.code = data.code || '';
+          err.details = data.details || '';
+          err.hint = data.hint || '';
+          err.response = raw;
+
+          throw err;
+        }
+
+        return data;
+      });
+    }).catch(function (e) {
+      if (e.name === 'AbortError') {
+        throw new Error(
+          '通信が10秒以内に完了しませんでした。'
+        );
+      }
+
+      throw e;
+    }).finally(function () {
+      clearTimeout(timer);
     });
   }
 
-  // 予約欄のデザイン
+  // 予約欄デザイン
   var st = document.createElement('style');
 
   st.textContent =
@@ -120,7 +162,7 @@
   document.head.appendChild(st);
 
   function mount(pf, id) {
-    if (pf.querySelector('.sample')) return;
+    if (document.getElementById('moon-reserve')) return;
 
     var h1 = pf.querySelector('h1.page');
     var clone = h1 ? h1.cloneNode(true) : null;
@@ -155,7 +197,6 @@
 
     var body = sec.querySelector('#mr-body');
 
-    // 出勤情報を取得：今日から7日間
     var today = jstNow();
     var from = ymd(today);
     var end = new Date(today);
@@ -190,8 +231,8 @@
     }).catch(function (e) {
       body.innerHTML =
         '<p class="mr-small mr-err" style="font-size:14px">' +
-        '予約情報を読み込めませんでした。' +
-        ' エラー：' + esc(e.message) +
+        '出勤情報の取得に失敗しました。\n' +
+        'エラー：' + esc(e.message) +
         '</p>';
     });
 
@@ -273,7 +314,6 @@
         return course[1] + NOMINATION_FEE + oilOf()[1];
       }
 
-      // 選択した出勤日を基準にした空き時間計算
       function slots() {
         var sh = shiftOf();
         if (!sh || !busyReady) return [];
@@ -337,12 +377,12 @@
                 (t >= 1440 ? '（翌日）' : '') +
                 '</option>';
             }).join('')
-          : '<option value="">この条件で空いている時間がありません</option>';
+          : '<option value="">空いている時間がありません</option>';
 
         go.disabled = !busyReady || !list.length;
       }
 
-      // 前日・当日・翌日の予約を取得
+      // 空き状況取得
       function loadBusy() {
         busyReady = false;
         busy = [];
@@ -376,11 +416,18 @@
           busy = [];
           draw();
 
+          console.error('[MOONone public_busy error]', e);
+
           msg.innerHTML =
-            '<span class="mr-err">' +
-            '空き状況を読み込めませんでした。' +
-            ' エラー：' + esc(e.message) +
-            '</span>';
+            '<div class="mr-err">' +
+            '空き状況の取得に失敗しました。\n' +
+            'HTTP：' + esc(e.status || '不明') + '\n' +
+            'コード：' + esc(e.code || '不明') + '\n' +
+            'メッセージ：' + esc(e.message || '不明') + '\n' +
+            '詳細：' + esc(e.details || 'なし') + '\n' +
+            '補足：' + esc(e.hint || 'なし') + '\n' +
+            '応答：' + esc(e.response || 'なし') +
+            '</div>';
         });
       }
 
@@ -390,6 +437,7 @@
 
       loadBusy();
 
+      // 予約ボタン
       go.onclick = function () {
         var time = tSel.value;
         if (!time || !busyReady) return;
@@ -494,7 +542,6 @@
           msg.innerHTML =
             '<div class="mr-err">' + esc(detail) + '</div>';
 
-          // エラー内容を消さず、再操作できるようにする
           go.disabled = false;
         };
       };
