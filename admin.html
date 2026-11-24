@@ -29,6 +29,9 @@ button.p,.box button{background:var(--ink);color:#fff;border:0;padding:12px 18px
 .pv{width:90px;margin:6px 0;display:block}
 .m{color:#b3261e}
 pre{background:#fff;padding:10px;overflow:auto;font-size:12px}
+.sms-help{font-size:12px;color:#666;margin-top:5px}
+.sms-success{background:#fff;border:1px solid var(--gold);padding:16px;margin-top:16px;border-radius:8px}
+.sms-open{display:block;text-align:center;background:var(--ink);color:#fff;text-decoration:none;padding:14px;border-radius:6px;margin-top:12px}
 </style>
 </head>
 <body>
@@ -39,9 +42,7 @@ window.MOON_CONFIG={url:'https://zrheibaczldgsiniimgq.supabase.co',anon:'sb_publ
 </script>
 <script type="text/plain" id="sqlsrc">
 -- MOONone Supabase 構築SQL(最終版)
--- 実行方法: Supabase の SQL Editor に全文を貼って Run
--- このSQLは今回変更していません。
-
+-- 今回は変更していません。
 create table if not exists public.admins (
  user_id uuid primary key references auth.users(id) on delete cascade
 );
@@ -69,7 +70,6 @@ create table if not exists public.news (
  body text,
  active boolean not null default true
 );
-
 create table if not exists public.coupons (
  id text primary key default gen_random_uuid()::text,
  title text not null,
@@ -81,7 +81,6 @@ create table if not exists public.coupons (
  sort integer not null default 0,
  active boolean not null default true
 );
-
 create table if not exists public.therapists (
  id text primary key default gen_random_uuid()::text,
  name text not null,
@@ -107,7 +106,6 @@ create table if not exists public.therapists (
  sort integer not null default 0,
  active boolean not null default true
 );
-
 create table if not exists public.schedule (
  id text primary key default gen_random_uuid()::text,
  therapist_id text not null references public.therapists(id) on delete cascade,
@@ -115,7 +113,6 @@ create table if not exists public.schedule (
  start_time text not null,
  end_time text not null
 );
-
 create table if not exists public.diary (
  id text primary key default gen_random_uuid()::text,
  therapist_id text not null references public.therapists(id) on delete cascade,
@@ -139,7 +136,6 @@ grant select, insert, update, delete on public.news, public.coupons, public.ther
 drop policy if exists "admin all" on public.news;
 create policy "admin all" on public.news for all to authenticated
 using (public.is_admin()) with check (public.is_admin());
-
 drop policy if exists "public read" on public.news;
 create policy "public read" on public.news for select to anon, authenticated
 using (active = true);
@@ -147,7 +143,6 @@ using (active = true);
 drop policy if exists "admin all" on public.coupons;
 create policy "admin all" on public.coupons for all to authenticated
 using (public.is_admin()) with check (public.is_admin());
-
 drop policy if exists "public read" on public.coupons;
 create policy "public read" on public.coupons for select to anon, authenticated
 using (active = true);
@@ -155,11 +150,9 @@ using (active = true);
 drop policy if exists "admin all" on public.therapists;
 create policy "admin all" on public.therapists for all to authenticated
 using (public.is_admin()) with check (public.is_admin());
-
 drop policy if exists "admin all" on public.schedule;
 create policy "admin all" on public.schedule for all to authenticated
 using (public.is_admin()) with check (public.is_admin());
-
 drop policy if exists "admin all" on public.diary;
 create policy "admin all" on public.diary for all to authenticated
 using (public.is_admin()) with check (public.is_admin());
@@ -205,9 +198,6 @@ drop policy if exists "photos admin" on storage.objects;
 create policy "photos admin" on storage.objects for all to authenticated
 using (bucket_id = 'photos' and public.is_admin())
 with check (bucket_id = 'photos' and public.is_admin());
-
--- 初回管理者登録は Authentication → Users で作成後に実施
--- insert into public.admins (user_id) values ('ここにユーザーID');
 </script>
 <script>
 const C=window.MOON_CONFIG||{},$=s=>document.querySelector(s),app=$('#app'),pad=n=>String(n).padStart(2,'0');
@@ -239,6 +229,37 @@ const timeText=n=>pad(Math.floor((n%1440+1440)%1440/60))+':'+pad((n%60+60)%60);
 const dayShift=(d,n)=>{const x=new Date(d+'T12:00:00');x.setDate(x.getDate()+n);return ymd(x)};
 const dateDifference=(a,b)=>{const x=a.split('-').map(Number),y=b.split('-').map(Number);return Math.round((Date.UTC(x[0],x[1]-1,x[2])-Date.UTC(y[0],y[1]-1,y[2]))/86400000)};
 
+/* SMS本文と宛先を作成 */
+function makeSmsUrl(r){
+ const phone=String(r.customer_phone||'').replace(/[^\d+]/g,'');
+ if(!phone)return '';
+ const cast=nm(r.therapist_id);
+ const dateParts=String(r.work_date||'').split('-');
+ const dateLabel=dateParts.length===3?`${Number(dateParts[1])}月${Number(dateParts[2])}日`:r.work_date;
+ const start=String(r.start_time||'').slice(0,5);
+ const minutes=Number(r.course_minutes||0);
+ const startMinutes=timeMin(start);
+ const endMinutes=startMinutes+minutes;
+ const endDay=endMinutes>=1440?'（翌日）':'';
+ const end=timeText(endMinutes);
+ const amount=yen(Number(r.total_amount||0));
+ const body=
+`MOONoneです。
+
+ご予約ありがとうございます。
+以下の内容でご予約を承りました。
+
+ご予約日：${dateLabel}
+お時間：${start}〜${end}${endDay}
+担当：${cast}
+コース：${minutes}分
+料金：${amount}
+
+ご来店をお待ちしております。`;
+ /* iPhoneのSMS宛先指定形式 */
+ return 'sms:'+phone+'&body='+encodeURIComponent(body);
+}
+
 async function reservationList(){
  const mn=$('#mn');
  mn.innerHTML='<h2>予約管理</h2><p>読み込み中…</p>';
@@ -263,7 +284,7 @@ async function reservationList(){
   $('#rf-count').textContent=`${filtered.length}件 / 全${rows.length}件`;
   $('#reservation-rows').innerHTML=filtered.map(r=>{
    const status=r.status==='hold'?(r.hold_expires_at&&new Date(r.hold_expires_at)>new Date()?'仮押さえ':'期限切れ'):'確定';
-   return `<div class="row"><span><b>${esc(r.work_date)}　${esc(nm(r.therapist_id))}</b><br>${esc(r.start_time)}〜${esc(r.end_time)}${Number(r.end_day_offset||0)?'（翌日終了）':''}<br>${esc(r.customer_name||'名前未登録')} ／ ${esc(String(r.course_minutes||'-'))}分<br>${esc(r.oil_type||'ノーマルオイル')} ／ ${yen(Number(r.total_amount||0))}<br><i>${status}</i></span><span><button data-re="${esc(r.id)}">編集</button><button data-rd="${esc(r.id)}">削除</button></span></div>`;
+   return `<div class="row"><span><b>${esc(r.work_date)}　${esc(nm(r.therapist_id))}</b><br>${esc(r.start_time)}〜${esc(r.end_time)}${Number(r.end_day_offset||0)?'（翌日終了）':''}<br>${esc(r.customer_name||'名前未登録')} ／ ${esc(String(r.course_minutes||'-'))}分<br>${esc(r.customer_phone||'電話番号未登録')}<br>${esc(r.oil_type||'ノーマルオイル')} ／ ${yen(Number(r.total_amount||0))}<br><i>${status}</i></span><span><button data-re="${esc(r.id)}">編集</button><button data-rd="${esc(r.id)}">削除</button></span></div>`;
   }).join('')||'<p>該当する予約はありません。</p>';
  };
  ['rf-from','rf-to','rf-therapist'].forEach(id=>$('#'+id).addEventListener('change',render));
@@ -349,10 +370,11 @@ function reservationForm(r){
  <label>オイル<select name="oil_type">${oilOptions.map(o=>`<option value="${o[0]}" ${(r.oil_type||'ノーマルオイル')===o[0]?'selected':''}>${o[0]}　${o[1]?'+'+yen(o[1]):'無料'}</option>`).join('')}</select></label>
  <label>開始時間<select name="start_time" required><option value="">出勤情報を読み込み中…</option></select></label>
  <label>お客様名（ニックネーム可）<input name="customer_name" required value="${esc(r.customer_name||'')}"></label>
- <label>電話番号（任意・店側管理用）<input name="customer_phone" type="tel" value="${esc(r.customer_phone||'')}"></label>
+ <label>SMS送信先電話番号（受信したSMSの番号）<input name="customer_phone" type="tel" inputmode="tel" autocomplete="tel" required placeholder="例：09012345678" value="${esc(r.customer_phone||'')}"></label>
+ <p class="sms-help">予約確定後、この番号を宛先にしてSMS画面を開きます。</p>
  <label>支払い方法<input value="現金" disabled></label>
  <section class="row" style="display:block"><p id="rend">料金を計算します。</p><h2 id="rtotal"></h2></section>
- <p id="rmsg" class="m"></p><button class="p" id="rsave" disabled>予約を保存</button><button type="button" class="alt" id="rcancel">キャンセル</button></form>`;
+ <p id="rmsg" class="m"></p><button class="p" id="rsave" disabled>予約を保存してSMSを開く</button><button type="button" class="alt" id="rcancel">キャンセル</button></form>`;
  const f=$('#rf'),timeSelect=f.elements.start_time,save=$('#rsave'),msg=$('#rmsg');
  let busyReady=false;
  function showPrice(){
@@ -414,17 +436,33 @@ function reservationForm(r){
   e.preventDefault();
   if(!busyReady||!timeSelect.value){alert('空き時間を確認してください。');return}
   if(!f.customer_name.value.trim()){alert('お客様名を入力してください。');return}
+  const phone=f.customer_phone.value.trim();
+  if(!phone){alert('SMS送信先の電話番号を入力してください。');f.customer_phone.focus();return}
+  if(!/^[0-9+()\-\s]{9,20}$/.test(phone)){alert('電話番号の形式を確認してください。');f.customer_phone.focus();return}
   const t=Number(timeSelect.value),startTime=timeText(t);
+  const course=Number(f.course_minutes.value);
+  const startDayOffset=Math.floor(t/1440);
+  const startAbsolute=t;
+  const endAbsolute=startAbsolute+course;
+  const endTime=timeText(endAbsolute);
+  const endDayOffset=Math.floor(endAbsolute/1440);
+  const selectedCast=nm(f.therapist_id.value);
+  const dateValue=f.work_date.value;
+  const customerName=f.customer_name.value.trim();
+  const oilValue=f.oil_type.value;
+  const oilFee=(oilOptions.find(o=>o[0]===oilValue)||[null,0])[1];
+  const totalAmount=courseFees[course]+nominationFee+oilFee;
   save.disabled=true;msg.textContent='予約を保存しています…';
+
   const {error}=await sb.rpc('admin_save_reservation',{
    p_reservation_id:r.id||null,
    p_therapist_id:f.therapist_id.value,
-   p_work_date:f.work_date.value,
+   p_work_date:dateValue,
    p_start_time:startTime,
-   p_course_minutes:Number(f.course_minutes.value),
-   p_customer_name:f.customer_name.value.trim(),
-   p_customer_phone:f.customer_phone.value.trim()||null,
-   p_oil_type:f.oil_type.value
+   p_course_minutes:course,
+   p_customer_name:customerName,
+   p_customer_phone:phone,
+   p_oil_type:oilValue
   });
   if(error){
    msg.textContent='保存できませんでした：'+error.message;
@@ -432,8 +470,51 @@ function reservationForm(r){
    await loadSlots();
    return;
   }
-  alert('予約を保存しました。');
-  reservationList();
+
+  /* 保存成功後、登録済み予約情報を取得してSMSを準備 */
+  msg.textContent='予約を保存しました。SMS画面を開いています…';
+  const {data:savedRows,error:readError}=await sb.from('reservations')
+   .select('*')
+   .eq('therapist_id',f.therapist_id.value)
+   .eq('work_date',dateValue)
+   .eq('start_time',startTime)
+   .eq('customer_name',customerName)
+   .order('created_at',{ascending:false})
+   .limit(1);
+
+  let smsReservation={
+   therapist_id:f.therapist_id.value,
+   work_date:dateValue,
+   start_time:startTime,
+   end_time:endTime,
+   start_day_offset:startDayOffset,
+   end_day_offset:endDayOffset,
+   course_minutes:course,
+   customer_name:customerName,
+   customer_phone:phone,
+   oil_type:oilValue,
+   total_amount:totalAmount
+  };
+  if(!readError&&savedRows&&savedRows.length){
+   smsReservation={...smsReservation,...savedRows[0],customer_phone:phone};
+  }
+
+  const smsUrl=makeSmsUrl(smsReservation);
+  mn.innerHTML=`<h2>予約を保存しました</h2>
+  <div class="sms-success">
+   <b>予約登録が完了しました。</b>
+   <p>${esc(dateValue)}　${esc(startTime)}〜${esc(endTime)}</p>
+   <p>${esc(selectedCast)} ／ ${course}分</p>
+   <p>宛先：${esc(phone)}</p>
+   <p>SMSの本文には予約内容と料金を入力済みです。</p>
+   <a class="sms-open" id="sms-open-link" href="${esc(smsUrl)}">SMS画面を開く</a>
+   <p class="sms-help">SMS画面が自動で開かなかった場合は、上のボタンを押してください。内容を確認して送信してください。</p>
+  </div>
+  <button class="p" id="back-reservations">予約一覧に戻る</button>`;
+  $('#back-reservations').onclick=reservationList;
+
+  /* iPhoneのSMSアプリを開く。ブロックされた場合は上のリンクを利用 */
+  try{window.location.href=smsUrl}catch(openError){console.warn('SMSアプリを開けませんでした',openError)}
  };
  showPrice();
  loadSlots();
