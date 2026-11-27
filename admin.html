@@ -32,6 +32,16 @@ pre{background:#fff;padding:10px;overflow:auto;font-size:12px}
 .sms-help{font-size:12px;color:#666;margin-top:5px}
 .sms-success{background:#fff;border:1px solid var(--gold);padding:16px;margin-top:16px;border-radius:8px}
 .sms-open{display:block;text-align:center;background:var(--ink);color:#fff;text-decoration:none;padding:14px;border-radius:6px;margin-top:12px}
+.reward-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:12px}
+.reward-summary>div{background:#fff;border:1px solid var(--line);padding:12px 8px;text-align:center;min-width:0}
+.reward-summary b{display:block;font-size:17px;overflow-wrap:anywhere}
+.reward-card{background:#fff;border:1px solid var(--line);padding:12px;margin-top:8px;border-radius:6px}
+.reward-card p{margin:5px 0}
+.reward-actions{display:flex;gap:8px;flex-wrap:wrap}
+.reward-actions button{padding:8px 12px;border:1px solid var(--ink);background:#fff;color:var(--ink);font:inherit;cursor:pointer}
+.reward-actions button.primary{background:var(--ink);color:#fff}
+.reward-status{display:inline-block;padding:2px 8px;border-radius:12px;background:#eee;font-size:12px}
+@media(max-width:420px){.reward-summary{gap:5px}.reward-summary>div{padding:10px 4px}.reward-summary b{font-size:14px}}
 </style>
 </head>
 <body>
@@ -220,7 +230,8 @@ const T={
  schedule:{l:'出勤情報',o:['work_date',0],s:r=>r.work_date+'　'+nm(r.therapist_id)+'　'+r.start_time+'-'+r.end_time,f:[['work_date','日付','date'],['therapist_id','キャスト','th'],['start_time','開始時間','time'],['end_time','終了時間','time']]},
  therapists:{l:'キャスト一覧',o:['sort',1],s:r=>r.name+(r.active?'':'(非公開)'),f:[['name','名前','text'],['photo','写真','img'],['age','年齢','num'],['height','身長(cm)','num'],['bust','バスト','num'],['cup','カップ','text'],['waist','ウエスト','num'],['hip','ヒップ','num'],['categories','カテゴリー(カンマ区切り)','tags'],['x_url','XのURL','text'],['catch','キャッチコピー','text'],['hobby','趣味','text'],['specialty','得意な施術','text'],['food','好きな食べ物','text'],['prev_job','前のお仕事','text'],['kyun','男性にキュンとする瞬間','text'],['holiday','休みの日は何をしている?','text'],['message','本人からのメッセージ','area'],['manager_comment','店長のコメント','area'],['sample','サンプル表示','bool'],['sort','表示順(小さい順)','num'],A]},
  diary:{l:'写メ日記',o:['posted_at',0],s:r=>lt(r.posted_at).replace('T',' ')+'　'+nm(r.therapist_id)+'　'+r.title,f:[['therapist_id','キャスト','th'],['posted_at','投稿日時','dt'],['title','タイトル','text'],['body','本文','area'],['photo','写真','img'],A]},
- reservations:{l:'予約管理',reservation:true}
+ reservations:{l:'予約管理',reservation:true},
+ rewards:{l:'報酬管理',rewards:true}
 };
 
 const dateText=()=>ymd(new Date());
@@ -298,61 +309,6 @@ async function reservationList(){
   }
  };
  render();
-}
-
-async function boot(){
- const{data:{session}}=await sb.auth.getSession();
- if(!session)return login();
- const{data:ok}=await sb.rpc('is_admin');
- if(!ok)return denied(session.user);
- const{data}=await sb.from('therapists').select('id,name').order('sort');
- TH=data||[];
- shell();
-}
-
-function login(m=''){
- app.innerHTML=`<form id="lf" class="box"><h1>MOONone 管理</h1><p class="m">${m}</p><label>メールアドレス<input name="em" type="email" required autocomplete="username"></label><label>パスワード<input name="pw" type="password" required autocomplete="current-password"></label><button>ログイン</button><button type="button" id="gh" class="alt">GitHubでログイン</button></form>`;
- $('#lf').onsubmit=async e=>{
-  e.preventDefault();
-  const{error}=await sb.auth.signInWithPassword({email:e.target.em.value,password:e.target.pw.value});
-  error?login('ログインに失敗しました'):boot();
- };
- $('#gh').onclick=()=>sb.auth.signInWithOAuth({provider:'github',options:{redirectTo:location.origin+location.pathname}});
-}
-
-function denied(u){
- app.innerHTML=`<div class="box"><h1>管理者未登録</h1><p>このアカウントはまだ管理者に登録されていません。Supabase の SQL Editor で次を実行してください。</p><pre>insert into public.admins(user_id) values ('${esc(u.id)}');</pre><button id="lo">ログアウト</button></div>`;
- $('#lo').onclick=out;
-}
-async function out(){await sb.auth.signOut();login()}
-
-function shell(){
- app.innerHTML=`<header><b>MOONone 管理</b><span><a href="index.html" target="_blank">サイトを見る</a><button id="lo">ログアウト</button></span></header><nav>${Object.entries(T).map(([k,c])=>`<button data-t="${k}" class="${k===tab?'on':''}">${c.l}</button>`).join('')}</nav><main id="mn"></main>`;
- $('#lo').onclick=out;
- document.querySelector('nav').onclick=e=>{
-  const k=e.target.dataset.t;
-  if(k){tab=k;shell()}
- };
- list();
-}
-
-async function list(){
- const c=T[tab],mn=$('#mn');
- mn.innerHTML='読み込み中…';
- if(c.reservation)return reservationList();
- const{data,error}=await sb.from(tab).select('*').order(c.o[0],{ascending:!!c.o[1]});
- if(error)return mn.innerHTML=`<p class="m">${esc(error.message)}</p>`;
- mn.innerHTML=`<button class="p" id="nw">＋ 新規追加</button>`+(data.map(r=>`<div class="row"><span>${esc(c.s(r))}</span><span><button data-e="${esc(r.id)}">編集</button> <button data-d="${esc(r.id)}">削除</button></span></div>`).join('')||'<p>まだありません。</p>');
- $('#nw').onclick=()=>form({active:true,posted_on:ymd(new Date()),posted_at:new Date().toISOString(),sort:0});
- mn.onclick=async e=>{
-  const b=e.target,id=b.dataset.e||b.dataset.d;
-  if(!id)return;
-  if(b.dataset.e)form(data.find(r=>r.id===id));
-  else if(confirm('削除します。よろしいですか?')){
-   const{error}=await sb.from(tab).delete().eq('id',id);
-   error?alert(error.message):list();
-  }
- };
 }
 
 function reservationForm(r){
@@ -518,6 +474,244 @@ function reservationForm(r){
  };
  showPrice();
  loadSlots();
+}
+
+/* 報酬管理 */
+function reservationEndDate(r){
+ const offset=Number(r.end_day_offset||0);
+ const date=dayShift(r.work_date,offset);
+ const time=String(r.end_time||'').slice(0,5);
+ if(!date||!time)return null;
+ const result=new Date(date+'T'+time+':00');
+ return Number.isNaN(result.getTime())?null:result;
+}
+
+async function rewardList(){
+ const mn=$('#mn');
+ mn.innerHTML='<h2>報酬管理</h2><p>読み込み中…</p>';
+
+ const [reservationResult,rewardResult]=await Promise.all([
+  sb.from('reservations').select('*').order('work_date',{ascending:false}),
+  sb.from('reward_records').select('*').order('confirmed_at',{ascending:false})
+ ]);
+
+ if(reservationResult.error){
+  mn.innerHTML='<h2>報酬管理</h2><p class="m">予約データを取得できません：'+esc(reservationResult.error.message)+'</p>';
+  return;
+ }
+ if(rewardResult.error){
+  mn.innerHTML='<h2>報酬管理</h2><p class="m">報酬データを取得できません：'+esc(rewardResult.error.message)+'</p>';
+  return;
+ }
+
+ const reservations=reservationResult.data||[];
+ const records=rewardResult.data||[];
+ const now=new Date();
+ const total=records.reduce((sum,r)=>sum+Number(r.reward_amount||0),0);
+ const paid=records.filter(r=>r.payout_status==='paid').reduce((sum,r)=>sum+Number(r.reward_amount||0),0);
+ const unpaid=records.filter(r=>r.payout_status==='unpaid').reduce((sum,r)=>sum+Number(r.reward_amount||0),0);
+
+ const totals={};
+ records.forEach(r=>{
+  const id=String(r.therapist_id);
+  if(!totals[id])totals[id]={total:0,paid:0,unpaid:0,count:0};
+  const amount=Number(r.reward_amount||0);
+  totals[id].total+=amount;
+  totals[id].count++;
+  if(r.payout_status==='paid')totals[id].paid+=amount;
+  else totals[id].unpaid+=amount;
+ });
+
+ const recorded=new Set(records.map(r=>String(r.reservation_id)));
+ const eligible=reservations.filter(r=>{
+  const end=reservationEndDate(r);
+  return r.status==='confirmed'&&end&&end<=now&&!recorded.has(String(r.id));
+ });
+
+ mn.innerHTML=`
+ <h2>報酬管理</h2>
+ <button class="p" id="reward-refresh">更新</button>
+
+ <div class="reward-summary">
+  <div><span>報酬合計</span><b>${yen(total)}</b></div>
+  <div><span>支払済み</span><b>${yen(paid)}</b></div>
+  <div><span>未払い</span><b>${yen(unpaid)}</b></div>
+ </div>
+
+ <h3>キャスト別累計</h3>
+ ${TH.map(t=>{
+  const v=totals[String(t.id)];
+  if(!v)return '';
+  return `<section class="reward-card">
+   <b>${esc(t.name)}</b>
+   <p>報酬合計：${yen(v.total)}</p>
+   <p>支払済み：${yen(v.paid)}</p>
+   <p>未払い：${yen(v.unpaid)}</p>
+   <p>確定件数：${v.count}件</p>
+  </section>`;
+ }).join('')||'<p>まだ報酬履歴がありません。</p>'}
+
+ <h3>報酬未確定の予約</h3>
+ <p class="sms-help">施術終了時刻を過ぎた確定予約のみ表示します。</p>
+ <div>
+ ${eligible.map(r=>`
+  <section class="reward-card">
+   <b>${esc(r.work_date)}　${esc(nm(r.therapist_id))}</b>
+   <p>${esc(r.start_time)}〜${esc(r.end_time)}${Number(r.end_day_offset||0)?'（翌日終了）':''}</p>
+   <p>${esc(r.customer_name||'名前未登録')} ／ ${esc(String(r.course_minutes||'-'))}分</p>
+   <p>予約料金：${yen(r.total_amount)}</p>
+   <div class="reward-actions">
+    <button class="primary" data-confirm-reward="${esc(r.id)}">報酬確定</button>
+   </div>
+  </section>
+ `).join('')||'<p>報酬確定できる予約はありません。</p>'}
+ </div>
+
+ <h3>報酬履歴・支払い管理</h3>
+ <div>
+ ${records.map(r=>`
+  <section class="reward-card">
+   <b>${esc(nm(r.therapist_id))}　${yen(r.reward_amount)}</b>
+   <p>確定日時：${esc(r.confirmed_at||'')}</p>
+   <p><span class="reward-status">${r.payout_status==='paid'?'支払済み':'未払い'}</span></p>
+   ${r.paid_at?`<p>支払日時：${esc(r.paid_at)}</p>`:''}
+   ${r.notes?`<p>メモ：${esc(r.notes)}</p>`:''}
+   <div class="reward-actions">
+    ${r.payout_status==='paid'
+     ?`<button data-unpay="${esc(r.id)}">未払いに戻す</button>`
+     :`<button class="primary" data-paid="${esc(r.id)}">支払い完了</button>`}
+   </div>
+  </section>
+ `).join('')||'<p>報酬履歴はありません。</p>'}
+ </div>
+ `;
+
+ $('#reward-refresh').onclick=rewardList;
+
+ mn.onclick=async e=>{
+  const b=e.target;
+
+  if(b.dataset.confirmReward){
+   const id=b.dataset.confirmReward;
+   const r=reservations.find(x=>String(x.id)===id);
+   if(!r)return;
+
+   const end=reservationEndDate(r);
+   if(r.status!=='confirmed'||!end||end>new Date()){
+    alert('施術終了前の予約、または確定していない予約です。');
+    return;
+   }
+
+   const amountText=prompt('確定する報酬金額を入力してください（円）');
+   if(amountText===null)return;
+   if(!/^\d+$/.test(amountText.trim())){
+    alert('報酬金額は半角数字で入力してください。');
+    return;
+   }
+
+   const amount=Number(amountText);
+   if(!Number.isSafeInteger(amount)){
+    alert('金額が正しくありません。');
+    return;
+   }
+
+   const notes=prompt('メモ（任意）')||'';
+   if(!confirm(nm(r.therapist_id)+' の報酬 '+yen(amount)+' を確定しますか？'))return;
+
+   const {error}=await sb.from('reward_records').insert({
+    reservation_id:String(r.id),
+    therapist_id:r.therapist_id,
+    reward_amount:amount,
+    payout_status:'unpaid',
+    notes:notes
+   });
+
+   if(error){
+    alert('報酬確定に失敗しました：'+error.message);
+    return;
+   }
+
+   alert('報酬を確定しました。');
+   rewardList();
+   return;
+  }
+
+  if(b.dataset.paid){
+   if(!confirm('この報酬を支払済みにしますか？'))return;
+   const {error}=await sb.from('reward_records')
+    .update({payout_status:'paid',paid_at:new Date().toISOString()})
+    .eq('id',b.dataset.paid);
+   if(error){alert('更新できませんでした：'+error.message);return}
+   rewardList();
+   return;
+  }
+
+  if(b.dataset.unpay){
+   if(!confirm('未払いに戻しますか？'))return;
+   const {error}=await sb.from('reward_records')
+    .update({payout_status:'unpaid',paid_at:null})
+    .eq('id',b.dataset.unpay);
+   if(error){alert('更新できませんでした：'+error.message);return}
+   rewardList();
+  }
+ };
+}
+
+async function boot(){
+ const{data:{session}}=await sb.auth.getSession();
+ if(!session)return login();
+ const{data:ok}=await sb.rpc('is_admin');
+ if(!ok)return denied(session.user);
+ const{data}=await sb.from('therapists').select('id,name').order('sort');
+ TH=data||[];
+ shell();
+}
+
+function login(m=''){
+ app.innerHTML=`<form id="lf" class="box"><h1>MOONone 管理</h1><p class="m">${m}</p><label>メールアドレス<input name="em" type="email" required autocomplete="username"></label><label>パスワード<input name="pw" type="password" required autocomplete="current-password"></label><button>ログイン</button><button type="button" id="gh" class="alt">GitHubでログイン</button></form>`;
+ $('#lf').onsubmit=async e=>{
+  e.preventDefault();
+  const{error}=await sb.auth.signInWithPassword({email:e.target.em.value,password:e.target.pw.value});
+  error?login('ログインに失敗しました'):boot();
+ };
+ $('#gh').onclick=()=>sb.auth.signInWithOAuth({provider:'github',options:{redirectTo:location.origin+location.pathname}});
+}
+
+function denied(u){
+ app.innerHTML=`<div class="box"><h1>管理者未登録</h1><p>このアカウントはまだ管理者に登録されていません。Supabase の SQL Editor で次を実行してください。</p><pre>insert into public.admins(user_id) values ('${esc(u.id)}');</pre><button id="lo">ログアウト</button></div>`;
+ $('#lo').onclick=out;
+}
+async function out(){await sb.auth.signOut();login()}
+
+function shell(){
+ app.innerHTML=`<header><b>MOONone 管理</b><span><a href="index.html" target="_blank">サイトを見る</a><button id="lo">ログアウト</button></span></header><nav>${Object.entries(T).map(([k,c])=>`<button data-t="${k}" class="${k===tab?'on':''}">${c.l}</button>`).join('')}</nav><main id="mn"></main>`;
+ $('#lo').onclick=out;
+ document.querySelector('nav').onclick=e=>{
+  const k=e.target.dataset.t;
+  if(k){tab=k;shell()}
+ };
+ list();
+}
+
+async function list(){
+ const c=T[tab],mn=$('#mn');
+ mn.innerHTML='読み込み中…';
+ if(c.reservation)return reservationList();
+ if(c.rewards)return rewardList();
+
+ const{data,error}=await sb.from(tab).select('*').order(c.o[0],{ascending:!!c.o[1]});
+ if(error)return mn.innerHTML=`<p class="m">${esc(error.message)}</p>`;
+ mn.innerHTML=`<button class="p" id="nw">＋ 新規追加</button>`+(data.map(r=>`<div class="row"><span>${esc(c.s(r))}</span><span><button data-e="${esc(r.id)}">編集</button> <button data-d="${esc(r.id)}">削除</button></span></div>`).join('')||'<p>まだありません。</p>');
+ $('#nw').onclick=()=>form({active:true,posted_on:ymd(new Date()),posted_at:new Date().toISOString(),sort:0});
+ mn.onclick=async e=>{
+  const b=e.target,id=b.dataset.e||b.dataset.d;
+  if(!id)return;
+  if(b.dataset.e)form(data.find(r=>r.id===id));
+  else if(confirm('削除します。よろしいですか?')){
+   const{error}=await sb.from(tab).delete().eq('id',id);
+   error?alert(error.message):list();
+  }
+ };
 }
 
 const inp=([k,l,t],v)=>{
