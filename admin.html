@@ -12,7 +12,7 @@
 body{margin:0;background:var(--mist);color:var(--ink);font:15px/1.6 "Hiragino Sans","Noto Sans JP",sans-serif}
 header{background:var(--ink);color:#fff;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid var(--gold)}
 header a,header button{color:#d8bd7c;background:none;border:0;font:inherit;cursor:pointer;margin-left:12px}
-nav{display:flex;gap:6px;overflow-x:auto;padding:10px 12px}
+nav{display:flex;gap:6px;flex-wrap:wrap;overflow:visible;padding:10px 12px}
 nav button{flex:none;border:1px solid var(--gold);background:#fff;padding:8px 14px;border-radius:16px;font:inherit}
 nav .on{background:var(--ink);color:#fff}
 main,.box{max-width:720px;margin:auto;padding:12px 16px 60px}
@@ -602,28 +602,40 @@ async function rewardList(){
     return;
    }
 
-   const amountText=prompt('確定する報酬金額を入力してください（円）');
-   if(amountText===null)return;
-   if(!/^\d+$/.test(amountText.trim())){
-    alert('報酬金額は半角数字で入力してください。');
+   const baseRewards={60:10000,70:11000,90:14000,120:17000,150:20000};
+   const course=Number(r.course_minutes);
+   const base=baseRewards[course];
+   if(!base){
+    alert('このコース時間の基本報酬が設定されていません。');
     return;
    }
 
-   const amount=Number(amountText);
-   if(!Number.isSafeInteger(amount)){
-    alert('金額が正しくありません。');
+   const nomination=2000;
+   const oilRewards={'ノーマルオイル':0,'ディープオイル':2000,'極みオイル':3000};
+   const oilType=String(r.oil_type||'ノーマルオイル');
+   if(!Object.prototype.hasOwnProperty.call(oilRewards,oilType)){
+    alert('オイルの種類を確認できません。報酬を確定できません。');
     return;
    }
+   const oil=oilRewards[oilType];
+   const amount=base+nomination+oil;
+   const breakdown='基本報酬 '+base+'円 / 本指名 '+nomination+'円 / '+oilType+' '+oil+'円';
 
-   const notes=prompt('メモ（任意）')||'';
-   if(!confirm(nm(r.therapist_id)+' の報酬 '+yen(amount)+' を確定しますか？'))return;
+   if(!confirm(
+    nm(r.therapist_id)+' の報酬を自動計算しました。\n\n'+
+    '基本報酬：'+yen(base)+'\n'+
+    '本指名バック：'+yen(nomination)+'\n'+
+    'オイルバック：'+yen(oil)+'\n'+
+    '合計：'+yen(amount)+'\n\n'+
+    'この金額で確定しますか？'
+   ))return;
 
    const {error}=await sb.from('reward_records').insert({
     reservation_id:String(r.id),
     therapist_id:r.therapist_id,
     reward_amount:amount,
     payout_status:'unpaid',
-    notes:notes
+    notes:breakdown
    });
 
    if(error){
